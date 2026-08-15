@@ -193,3 +193,11 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# --- Personal study notes — keep local, not for public repo ---
+.DS_Store
+ANALYSIS.md
+NANO_VLLM_PLAN.txt
+M1_*.md
+TEST_RESULTS.md
+M2_RESULT.md

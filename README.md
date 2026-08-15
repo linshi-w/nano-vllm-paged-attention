@@ -1,66 +1,65 @@
-<p align="center">
-<img width="300" src="assets/logo.png">
-</p>
+# nano-vllm-paged-attention
 
-<p align="center">
-<a href="https://trendshift.io/repositories/15323" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15323" alt="GeeeekExplorer%2Fnano-vllm | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
+A from-scratch **Triton PagedAttention kernel** swapped into [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm) — a lightweight, vLLM-style LLM inference engine — removing the `flash_attn` dependency from the decode stage.
 
-# Nano-vLLM
+## What this is
 
-A lightweight vLLM implementation built from scratch.
+[nano-vllm](https://github.com/GeeeekExplorer/nano-vllm) (by [GeeeekExplorer](https://github.com/GeeeekExplorer)) is a clean, ~1,200-line vLLM implementation. Its attention layer originally delegates both prefill and decode to the `flash_attn` library.
 
-## Key Features
+This repo keeps the engine as-is and replaces **only the decode path** with a hand-written Triton kernel that implements **PagedAttention** — the block-based KV-cache addressing vLLM uses in production — plus online-softmax, entirely in Triton.
 
-* 🚀 **Fast offline inference** - Comparable inference speeds to vLLM
-* 📖 **Readable codebase** - Clean implementation in ~ 1,200 lines of Python code
-* ⚡ **Optimization Suite** - Prefix caching, Tensor Parallelism, Torch compilation, CUDA graph, etc.
+## Key contribution
 
-## Installation
+**`nanovllm/layers/paged_attention.py`** — a Triton PagedAttention kernel for the decode stage:
 
-```bash
-pip install git+https://github.com/GeeeekExplorer/nano-vllm.git
-```
+- `grid = (num_seqs, num_heads)` — one program computes attention for one `(sequence, query head)` pair.
+- **Paged address translation** — `block_table[seq][pos // kv_block_size]` maps a logical position to a physical KV block. A `BLOCK_SIZE = 64` tile never crosses a `kv_block_size = 256` boundary, so each tile needs only one table lookup.
+- **GQA support** — `kv_head = head_idx // num_queries_per_kv`.
+- **Online softmax** — maintains `(m_i, l_i, acc)` running states; no `[seq_len, seq_len]` score matrix, mathematically equivalent to a one-pass softmax.
+- `bf16` in / `fp32` accumulate for numerical stability.
 
-## Model Download
+The only change to the engine is a single call-site in `nanovllm/layers/attention.py`:
 
-To download the model weights manually, use the following command:
-```bash
-huggingface-cli download --resume-download Qwen/Qwen3-0.6B \
-  --local-dir ~/huggingface/Qwen3-0.6B/ \
-  --local-dir-use-symlinks False
-```
-
-## Quick Start
-
-See `example.py` for usage. The API mirrors vLLM's interface with minor differences in the `LLM.generate` method:
 ```python
-from nanovllm import LLM, SamplingParams
-llm = LLM("/YOUR/MODEL/PATH", enforce_eager=True, tensor_parallel_size=1)
-sampling_params = SamplingParams(temperature=0.6, max_tokens=256)
-prompts = ["Hello, Nano-vLLM."]
-outputs = llm.generate(prompts, sampling_params)
-outputs[0]["text"]
+# decode
+o = paged_attention(q, k_cache, v_cache,
+                    context.block_tables, context.context_lens,
+                    self.scale)
 ```
 
-## Benchmark
+## Results
 
-See `bench.py` for benchmark.
+Correctness verified against a pure-PyTorch reference on an RTX 5090 (Blackwell, sm_120): **5/5 test cases pass** (MHA full/partial blocks, GQA 2:1, GQA 4:1, small block size).
 
-**Test Configuration:**
-- Hardware: RTX 4070 Laptop (8GB)
-- Model: Qwen3-0.6B
-- Total Requests: 256 sequences
-- Input Length: Randomly sampled between 100–1024 tokens
-- Output Length: Randomly sampled between 100–1024 tokens
+End-to-end inference runs correctly with the custom kernel in the decode path: **Prefill 7 tok/s, Decode 61 tok/s** (unoptimized).
 
-**Performance Results:**
-| Inference Engine | Output Tokens | Time (s) | Throughput (tokens/s) |
-|----------------|-------------|----------|-----------------------|
-| vLLM           | 133,966     | 98.37    | 1361.84               |
-| Nano-vLLM      | 133,966     | 93.41    | 1434.13               |
+## Install & run
 
+```bash
+pip install torch triton transformers xxhash tqdm flash-attn
 
-## Star History
+# download Qwen3-0.6B weights (example.py uses ~/huggingface/Qwen3-0.6B)
+python example.py
+```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=GeeeekExplorer/nano-vllm&type=Date)](https://www.star-history.com/#GeeeekExplorer/nano-vllm&Date)
+## Tests
+
+```bash
+# correctness only (no flash_attn needed)
+python test_paged_attention.py
+
+# + benchmark against flash_attn_with_kvcache
+python test_paged_attention.py --benchmark
+```
+
+## Project layout
+
+```
+nanovllm/layers/paged_attention.py   # Triton PagedAttention kernel (this repo's core)
+nanovllm/layers/attention.py         # decode path now calls paged_attention()
+test_paged_attention.py              # correctness tests + optional benchmark
+```
+
+## Acknowledgements
+
+Based on [nano-vllm](https://github.com/GeeeekExplorer/nano-vllm) by [GeeeekExplorer](https://github.com/GeeeekExplorer). See `LICENSE` for license terms.
