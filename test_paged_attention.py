@@ -156,7 +156,7 @@ if __name__ == "__main__":
 
     if HAS_FLASH_ATTN:
         print("\n--- 和 flash_attn_with_kvcache 对拍 ---")
-        run_flash_attn_test("flash_attn GQA 2:1", 4, 8, 4, 128, 256, [128, 257, 1000])
+        run_flash_attn_test("flash_attn GQA 2:1", 4, 8, 4, 128, 256, [128, 257, 1000, 2048])
         run_flash_attn_test("flash_attn MHA",     2, 8, 8, 128, 256, [256, 777])
     else:
         print("\n(flash_attn 未安装，跳过和它的对拍)")

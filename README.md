@@ -29,7 +29,18 @@ o = paged_attention(q, k_cache, v_cache,
 
 ## Results
 
-Correctness verified against a pure-PyTorch reference on an RTX 5090 (Blackwell, sm_120): **5/5 test cases pass** (MHA full/partial blocks, GQA 2:1, GQA 4:1, small block size).
+**Correctness** — verified on an RTX 5090 (Blackwell, sm_120):
+- **5/5** against a pure-PyTorch reference (MHA full/partial blocks, GQA 2:1, GQA 4:1, small block size)
+- **2/2** against `flash_attn_with_kvcache` (GQA 2:1, MHA)
+
+**Performance** — `triton.testing.do_bench`, 32 seqs × seq_len 4096, GQA 2:1 (head_dim 128):
+
+| kernel | time |
+|---|---|
+| triton paged_attention | 404.3 us |
+| flash_attn_with_kvcache | 359.1 us |
+
+~**12.6% slower** than flash_attn — near parity for a from-scratch Triton kernel in this memory-bound decode setting.
 
 End-to-end inference runs correctly with the custom kernel in the decode path: **Prefill 7 tok/s, Decode 61 tok/s** (unoptimized).
 
