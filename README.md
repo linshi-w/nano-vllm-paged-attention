@@ -35,12 +35,12 @@ o = paged_attention(q, k_cache, v_cache,
 
 **Performance** — `triton.testing.do_bench`, 32 seqs × seq_len 4096, GQA 2:1 (head_dim 128):
 
-| kernel | time |
-|---|---|
-| triton paged_attention | 404.3 us |
-| flash_attn_with_kvcache | 359.1 us |
+| GPU | triton paged_attention | flash_attn_with_kvcache | gap |
+|---|---|---|---|
+| RTX 4090 (Ada, sm_89) | 633.4 us | 629.9 us | **parity (<1%)** |
+| RTX 5090 (Blackwell, sm_120) | 404.3 us | 359.1 us | 12.6% slower |
 
-~**12.6% slower** than flash_attn — near parity for a from-scratch Triton kernel in this memory-bound decode setting.
+On the 4090 the hand-written kernel **matches `flash_attn_with_kvcache`** (within measurement noise). On the 5090 it's ~12.6% slower — `flash_attn` ships Blackwell-specific optimizations the naive Triton kernel doesn't use. Decode attention is memory-bound (single-token queries read the full KV cache), so on Ada, where both kernels saturate bandwidth, the Triton kernel reaches parity.
 
 End-to-end inference runs correctly with the custom kernel in the decode path: **Prefill 7 tok/s, Decode 61 tok/s** (unoptimized).
 
