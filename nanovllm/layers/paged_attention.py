@@ -98,6 +98,8 @@ def paged_attention(
     block_table: torch.Tensor,    # (num_seqs, max_blocks) int32, -1 填充
     seq_lens: torch.Tensor,       # (num_seqs,) int32
     softmax_scale: float,
+    block_size: int = 64,
+    num_warps: int = 4,
 ) -> torch.Tensor:                # (num_seqs, num_heads, head_dim)
     num_seqs, num_heads, head_dim = q.shape
     num_kv_heads = k_cache.shape[2]
@@ -106,7 +108,7 @@ def paged_attention(
     num_q_per_kv = num_heads // num_kv_heads
     assert head_dim & (head_dim - 1) == 0, "head_dim 必须是 2 的幂"
 
-    BLOCK_SIZE = 64
+    BLOCK_SIZE = block_size
     assert kv_block_size % BLOCK_SIZE == 0, "kv_block_size 必须是 BLOCK_SIZE 的整数倍"
 
     q = q.contiguous()
@@ -122,6 +124,6 @@ def paged_attention(
         HEAD_DIM=head_dim,
         BLOCK_SIZE=BLOCK_SIZE,
         NUM_QUERIES_PER_KV=num_q_per_kv,
-        num_warps=4,
+        num_warps=num_warps,
     )
     return out
