@@ -3,10 +3,10 @@ from torch import nn
 import triton
 import triton.language as tl
 
-from flash_attn import flash_attn_varlen_func
 from nanovllm.utils.context import get_context
 from nanovllm.layers.paged_attention import paged_attention
 from nanovllm.layers.prefill_attention import prefill_attention
+from nanovllm.layers.paged_prefill_attention import paged_prefill_attention
 
 
 @triton.jit
@@ -64,12 +64,10 @@ class Attention(nn.Module):
         if k_cache.numel() and v_cache.numel():
             store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
         if context.is_prefill:
-            if context.block_tables is not None:    # prefix cache（phase 2 再替换成 paged prefill）
-                k, v = k_cache, v_cache
-                o = flash_attn_varlen_func(q, k, v,
-                                           max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
-                                           max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
-                                           softmax_scale=self.scale, causal=True, block_table=context.block_tables)
+            if context.block_tables is not None:    # prefix cache → paged prefill（自研 Triton kernel）
+                o = paged_prefill_attention(q, k_cache, v_cache,
+                                            context.cu_seqlens_q, context.cu_seqlens_k,
+                                            context.block_tables, self.scale)
             else:    # 普通 prefill，自研 Triton kernel
                 o = prefill_attention(q, k, v, context.cu_seqlens_q, self.scale)
         else:    # decode
